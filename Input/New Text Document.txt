@@ -1,0 +1,9 @@
+"C:/Users/senthilkumar.p/Desktop/AIML_CoE/Deliverables/ElevAIteTools/PDFExtractor/pdf-parsers-main/Input/PclHttp_2_4.pdf"
+
+
+
+
+
+
+
+pdftable --file_path_or_url "C:/Users/senthilkumar.p/Desktop/AIML_CoE/Deliverables/ElevAIteTools/PDFExtractor/pdf-parsers-main/Input/PclHttp_2_4.pdf" --output_dir "extracted_tables" --lang "fr"
