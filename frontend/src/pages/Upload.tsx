@@ -95,7 +95,7 @@ export default function Upload() {
       for (const file of files) {
         setUploadProgress((prev) => ({ ...prev, [file.name]: 0 }));
 
-        // Simulate progress
+        // Simulated progress
         const interval = setInterval(() => {
           setUploadProgress((prev) => ({
             ...prev,
@@ -103,10 +103,15 @@ export default function Upload() {
           }));
         }, 200);
 
-        await api.uploadInvoice(file);
+        const result = await api.uploadInvoice(file);
 
         clearInterval(interval);
         setUploadProgress((prev) => ({ ...prev, [file.name]: 100 }));
+
+        // ✅ Notify other components to refresh invoices (e.g., dashboard)
+        if (result.success) {
+          window.dispatchEvent(new Event('invoiceUploaded'));
+        }
       }
 
       toast({

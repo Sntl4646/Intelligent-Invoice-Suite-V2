@@ -1,137 +1,121 @@
-// API service layer - ready to connect to Python backend
-// Replace these mock implementations with actual API calls
+// API service layer - connected to Python FastAPI backend
 
 import { Invoice, Vendor, DashboardMetrics, ChartData, TimePeriod } from '@/types/invoice';
-import {
-  mockInvoices,
-  mockVendors,
-  mockMetrics,
-  monthlyData,
-  quarterlyData,
-  yearlyData,
-  vendorSpendData,
-  invoiceStatusData,
-  sourceTypeData,
-} from '@/data/mockData';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
-// Simulate API delay
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Simple helper
+const handleResponse = async (res: Response) => {
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+};
 
 export const api = {
-  // Invoice endpoints
+  // ----------------- INVOICES -----------------
   async getInvoices(): Promise<Invoice[]> {
-    await delay(500);
-    // Replace with: return fetch(`${API_BASE_URL}/invoices`).then(res => res.json());
-    return mockInvoices;
+    const res = await fetch(`${API_BASE_URL}/invoices`);
+    return handleResponse(res);
   },
 
-  async getInvoice(id: string): Promise<Invoice | undefined> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/invoices/${id}`).then(res => res.json());
-    return mockInvoices.find(inv => inv.id === id);
+  async getInvoice(id: string): Promise<Invoice> {
+    const res = await fetch(`${API_BASE_URL}/invoices/${id}`);
+    return handleResponse(res);
   },
 
   async uploadInvoice(file: File): Promise<{ success: boolean; invoice?: Invoice; error?: string }> {
-    await delay(1500);
-    // Replace with actual upload logic:
-    // const formData = new FormData();
-    // formData.append('file', file);
-    // return fetch(`${API_BASE_URL}/invoices/upload`, { method: 'POST', body: formData }).then(res => res.json());
-    return { success: true, invoice: mockInvoices[0] };
-  },
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${API_BASE_URL}/invoices/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Upload failed:", errorText);
+        return { success: false, error: errorText || "Upload failed" };
+      }
+
+      const data = await response.json();
+      return { success: true, invoice: data };
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      return { success: false, error: err.message };
+    }
+  }, // 👈 IMPORTANT COMMA FIXED HERE ✅
 
   async updateInvoiceStatus(id: string, status: Invoice['status']): Promise<Invoice> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/invoices/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }).then(res => res.json());
-    const invoice = mockInvoices.find(inv => inv.id === id);
-    if (invoice) {
-      invoice.status = status;
-    }
-    return invoice!;
+    const res = await fetch(`${API_BASE_URL}/invoices/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    return handleResponse(res);
   },
 
-  // Vendor endpoints
+  // ----------------- VENDORS -----------------
   async getVendors(): Promise<Vendor[]> {
-    await delay(400);
-    // Replace with: return fetch(`${API_BASE_URL}/vendors`).then(res => res.json());
-    return mockVendors;
+    const res = await fetch(`${API_BASE_URL}/vendors`);
+    return handleResponse(res);
   },
 
-  async getVendor(id: string): Promise<Vendor | undefined> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/vendors/${id}`).then(res => res.json());
-    return mockVendors.find(v => v.id === id);
+  async getVendor(id: string): Promise<Vendor> {
+    const res = await fetch(`${API_BASE_URL}/vendors/${id}`);
+    return handleResponse(res);
   },
 
   async getVendorInvoices(vendorId: string): Promise<Invoice[]> {
-    await delay(400);
-    // Replace with: return fetch(`${API_BASE_URL}/vendors/${vendorId}/invoices`).then(res => res.json());
-    return mockInvoices.filter(inv => inv.vendorId === vendorId);
+    const res = await fetch(`${API_BASE_URL}/vendors/${vendorId}/invoices`);
+    return handleResponse(res);
   },
 
-  // Dashboard & Analytics endpoints
+  // ----------------- DASHBOARD -----------------
   async getDashboardMetrics(): Promise<DashboardMetrics> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/dashboard/metrics`).then(res => res.json());
-    return mockMetrics;
+    const res = await fetch(`${API_BASE_URL}/dashboard/metrics`);
+    return handleResponse(res);
   },
 
   async getChartData(period: TimePeriod): Promise<ChartData[]> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/analytics/invoices?period=${period}`).then(res => res.json());
-    switch (period) {
-      case 'monthly':
-        return monthlyData;
-      case 'quarterly':
-        return quarterlyData;
-      case 'yearly':
-        return yearlyData;
-      default:
-        return monthlyData;
-    }
+    const res = await fetch(`${API_BASE_URL}/dashboard/invoices?period=${period}`);
+    return handleResponse(res);
   },
 
   async getVendorSpendData(): Promise<ChartData[]> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/analytics/vendor-spend`).then(res => res.json());
-    return vendorSpendData;
+    const res = await fetch(`${API_BASE_URL}/dashboard/vendor-spend`);
+    return handleResponse(res);
   },
 
   async getInvoiceStatusData(): Promise<ChartData[]> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/analytics/invoice-status`).then(res => res.json());
-    return invoiceStatusData;
+    const res = await fetch(`${API_BASE_URL}/dashboard/invoice-status`);
+    return handleResponse(res);
   },
 
   async getSourceTypeData(): Promise<ChartData[]> {
-    await delay(300);
-    // Replace with: return fetch(`${API_BASE_URL}/analytics/source-types`).then(res => res.json());
-    return sourceTypeData;
+    const res = await fetch(`${API_BASE_URL}/dashboard/source-types`);
+    return handleResponse(res);
   },
 
-  // AI Processing endpoints
-  async processWithAI(invoiceId: string): Promise<{ success: boolean; data?: any }> {
-    await delay(2000);
-    // Replace with: return fetch(`${API_BASE_URL}/ai/process/${invoiceId}`, { method: 'POST' }).then(res => res.json());
-    return { success: true, data: { confidence: 98.5 } };
-  },
+  // ----------------- AI PROCESSING -----------------
+  async processWithAI(invoiceId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/process/${invoiceId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
 
-  async extractData(file: File): Promise<{ success: boolean; extractedData?: Partial<Invoice> }> {
-    await delay(3000);
-    // Replace with actual LangChain/Vision model processing:
-    // const formData = new FormData();
-    // formData.append('file', file);
-    // return fetch(`${API_BASE_URL}/ai/extract`, { method: 'POST', body: formData }).then(res => res.json());
-    return {
-      success: true,
-      extractedData: {
-        invoiceNumber: 'AI-EXTRACTED-001',
-        vendorName: 'Detected Vendor',
-        total: 5000,
-        confidence: 96.7,
-      },
-    };
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("AI Processing failed:", errorText);
+        return { success: false, error: errorText || "AI Processing failed" };
+      }
+
+      const data = await response.json();
+      return { success: true, data };
+    } catch (err: any) {
+      console.error("AI API error:", err);
+      return { success: false, error: err.message };
+    }
   },
 };

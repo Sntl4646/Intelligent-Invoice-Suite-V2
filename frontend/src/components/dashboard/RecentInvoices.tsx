@@ -12,6 +12,7 @@ export function RecentInvoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 🔁 Fetch invoices and listen for the “invoiceUploaded” event
   useEffect(() => {
     async function fetchInvoices() {
       try {
@@ -21,7 +22,18 @@ export function RecentInvoices() {
         setLoading(false);
       }
     }
+
+    // Initial fetch
     fetchInvoices();
+
+    // When a new invoice is uploaded, refresh the list
+    const handleInvoiceUploaded = () => {
+      setLoading(true);
+      fetchInvoices();
+    };
+
+    window.addEventListener('invoiceUploaded', handleInvoiceUploaded);
+    return () => window.removeEventListener('invoiceUploaded', handleInvoiceUploaded);
   }, []);
 
   if (loading) {
