@@ -1,3 +1,4 @@
+// This is the Settings.tsx file for configuring application settings in a dashboard layout.'
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

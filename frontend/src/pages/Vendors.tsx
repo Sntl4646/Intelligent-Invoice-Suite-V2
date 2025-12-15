@@ -1,3 +1,4 @@
+//This is the Vendors.tsx file for displaying and managing a list of vendors in a dashboard layout.'
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';

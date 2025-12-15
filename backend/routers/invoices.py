@@ -15,7 +15,7 @@ from services.invoice_extractor import extract_invoice_data
 
 
 
-router = APIRouter(prefix="/invoices", tags=["Invoices"])
+router = APIRouter()
 
 UPLOAD_DIR = "uploaded_invoices"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -25,7 +25,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def upload_invoice(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user)
+    user=None 
 ):
     """
     Uploads an invoice file, extracts key details via AI, 
@@ -177,10 +177,15 @@ async def upload_invoice(
 @router.get("/list", response_model=list)
 async def list_invoices(db: AsyncSession = Depends(get_db)):
     """
-    Fetch all invoices from the database with basic info.
+    Fetch all invoices from the database with vendor info.
     """
     try:
-        result = await db.execute(select(Invoice))
+        # Join with vendors to get vendor name
+        from sqlalchemy.orm import selectinload
+        
+        result = await db.execute(
+            select(Invoice).options(selectinload(Invoice.vendor)).order_by(Invoice.created_at.desc())
+        )
         invoices = result.scalars().all()
 
         data = [
@@ -188,8 +193,12 @@ async def list_invoices(db: AsyncSession = Depends(get_db)):
                 "id": str(inv.id),
                 "invoice_number": inv.invoice_number,
                 "vendor_id": str(inv.vendor_id),
-                "total_amount": inv.total_amount,
+                "vendor_name": inv.vendor.name if inv.vendor else "Unknown",
+                "issue_date": inv.issue_date.isoformat() if inv.issue_date else None,
+                "due_date": inv.due_date.isoformat() if inv.due_date else None,
+                "total_amount": float(inv.total_amount) if inv.total_amount else 0.0,
                 "status": inv.status,
+                "payment_terms": inv.payment_terms,
                 "created_at": inv.created_at.isoformat() if inv.created_at else None,
             }
             for inv in invoices
@@ -200,4 +209,105 @@ async def list_invoices(db: AsyncSession = Depends(get_db)):
 
     except Exception as e:
         logger.error(f"[Invoice List] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{invoice_id}", response_model=dict)
+async def get_invoice(invoice_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Get a single invoice by ID with full details.
+    """
+    try:
+        from sqlalchemy.orm import selectinload
+        from uuid import UUID
+        
+        # Convert string to UUID
+        invoice_uuid = UUID(invoice_id)
+        
+        result = await db.execute(
+            select(Invoice)
+            .options(selectinload(Invoice.vendor))
+            .where(Invoice.id == invoice_uuid)
+        )
+        invoice = result.scalars().first()
+        
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        
+        # Return full invoice details
+        data = {
+            "id": str(invoice.id),
+            "invoice_number": invoice.invoice_number,
+            "vendor_id": str(invoice.vendor_id),
+            "vendor_name": invoice.vendor.name if invoice.vendor else "Unknown",
+            "vendor_address": invoice.vendor.address if invoice.vendor else None,
+            "vendor_phone": invoice.vendor.phone if invoice.vendor else None,
+            "vendor_email": invoice.vendor.email if invoice.vendor else None,
+            "issue_date": invoice.issue_date.isoformat() if invoice.issue_date else None,
+            "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+            "subtotal": float(invoice.subtotal) if invoice.subtotal else 0.0,
+            "tax_amount": float(invoice.tax_amount) if invoice.tax_amount else 0.0,
+            "total_amount": float(invoice.total_amount) if invoice.total_amount else 0.0,
+            "currency": invoice.extracted_data.get("Currency", "USD") if invoice.extracted_data else "USD",
+            "payment_terms": invoice.payment_terms or "",
+            "notes": invoice.notes or "",
+            "status": invoice.status,
+            "file_path": invoice.file_path,
+            "extracted_data": invoice.extracted_data or {},
+            "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
+        }
+        
+        logger.info(f"[Invoice Detail] Retrieved invoice: {invoice_id}")
+        return data
+        
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid invoice ID format")
+    except Exception as e:
+        logger.error(f"[Invoice Detail] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.patch("/{invoice_id}/status", response_model=dict)
+async def update_invoice_status(
+    invoice_id: str,
+    status: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update invoice status (approve/reject).
+    """
+    try:
+        from uuid import UUID
+        
+        # Validate status
+        valid_statuses = ['pending', 'processing', 'processed', 'approved', 'paid', 'rejected']
+        if status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        
+        invoice_uuid = UUID(invoice_id)
+        
+        result = await db.execute(
+            select(Invoice).where(Invoice.id == invoice_uuid)
+        )
+        invoice = result.scalars().first()
+        
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        
+        # Update status
+        invoice.status = status
+        await db.commit()
+        await db.refresh(invoice)
+        
+        logger.info(f"[Invoice Status] Updated invoice {invoice_id} to {status}")
+        
+        return {
+            "success": True,
+            "invoice_id": str(invoice.id),
+            "status": invoice.status,
+            "message": f"Invoice {status} successfully"
+        }
+        
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid invoice ID format")
+    except Exception as e:
+        logger.error(f"[Invoice Status] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

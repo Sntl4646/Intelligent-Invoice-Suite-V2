@@ -1,3 +1,4 @@
+//This is the Invoices.tsx file for displaying and managing a list of invoices in a dashboard layout.'
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -32,31 +33,80 @@ import {
   ArrowUpDown,
   CheckCircle2,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
 
-  useEffect(() => {
-    async function fetchInvoices() {
-      try {
-        const data = await api.getInvoices();
-        setInvoices(data);
-      } finally {
-        setLoading(false);
+  // ✅ Separate fetch function
+  const fetchInvoices = async (showLoader = true) => {
+    try {
+      if (showLoader) {
+        setRefreshing(true);
       }
+      console.log('📥 Fetching invoices from API...');
+      const data = await api.getInvoices();
+      console.log('📥 Received invoices:', data);
+      setInvoices(data || []);
+    } catch (error) {
+      console.error('❌ Error fetching invoices:', error);
+      setInvoices([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  // ✅ Initial load
+  useEffect(() => {
     fetchInvoices();
   }, []);
 
+  // ✅ Listen for upload events from Upload page
+  useEffect(() => {
+    const handleInvoiceUploaded = () => {
+      console.log('🔔 Invoice uploaded event received, refreshing list...');
+      fetchInvoices(false);
+    };
+
+    window.addEventListener('invoiceUploaded', handleInvoiceUploaded);
+    return () => {
+      window.removeEventListener('invoiceUploaded', handleInvoiceUploaded);
+    };
+  }, []);
+
+  // ✅ Auto-refresh when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab visible, refreshing invoices...');
+        fetchInvoices(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const handleRefresh = () => {
+    fetchInvoices(true);
+  };
+
   const filteredInvoices = invoices.filter((invoice) => {
+    const invoiceNum = invoice.invoice_number || invoice.invoiceNumber || '';
+    const vendorName = invoice.vendor_name || invoice.vendorName || '';
+    
     const matchesSearch =
-      invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      invoice.vendorName.toLowerCase().includes(searchQuery.toLowerCase());
+      invoiceNum.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vendorName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
     const matchesSource = sourceFilter === 'all' || invoice.sourceType === sourceFilter;
     return matchesSearch && matchesStatus && matchesSource;
@@ -86,6 +136,7 @@ export default function Invoices() {
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="processed">Processed</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="paid">Paid</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
@@ -106,12 +157,23 @@ export default function Invoices() {
           </Select>
         </div>
 
-        <Link to="/upload">
-          <Button variant="gradient">
-            <Upload className="mr-2 h-4 w-4" />
-            Upload Invoice
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
           </Button>
-        </Link>
+
+          <Link to="/upload">
+            <Button variant="gradient">
+              <Upload className="mr-2 h-4 w-4" />
+              Upload Invoice
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Table */}
@@ -119,6 +181,16 @@ export default function Invoices() {
         {loading ? (
           <div className="flex h-96 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : invoices.length === 0 ? (
+          <div className="flex h-96 flex-col items-center justify-center gap-4">
+            <p className="text-muted-foreground">No invoices found</p>
+            <Link to="/upload">
+              <Button variant="gradient">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Your First Invoice
+              </Button>
+            </Link>
           </div>
         ) : (
           <Table>
@@ -134,8 +206,6 @@ export default function Invoices() {
                 <TableHead className="text-muted-foreground">Date</TableHead>
                 <TableHead className="text-muted-foreground">Due Date</TableHead>
                 <TableHead className="text-muted-foreground">Amount</TableHead>
-                <TableHead className="text-muted-foreground">Source</TableHead>
-                <TableHead className="text-muted-foreground">Confidence</TableHead>
                 <TableHead className="text-muted-foreground">Status</TableHead>
                 <TableHead className="text-muted-foreground">Actions</TableHead>
               </TableRow>
@@ -144,36 +214,26 @@ export default function Invoices() {
               {filteredInvoices.map((invoice) => (
                 <TableRow key={invoice.id} className="border-border">
                   <TableCell className="font-medium text-foreground">
-                    {invoice.invoiceNumber}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{invoice.vendorName}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {format(new Date(invoice.invoiceDate), 'MMM dd, yyyy')}
+                    {invoice.invoice_number || invoice.invoiceNumber || 'N/A'}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {format(new Date(invoice.dueDate), 'MMM dd, yyyy')}
+                    {invoice.vendor_name || invoice.vendorName || 'Unknown'}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {invoice.issue_date || invoice.invoiceDate
+                      ? format(new Date(invoice.issue_date || invoice.invoiceDate), 'MMM dd, yyyy')
+                      : 'N/A'}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {invoice.due_date || invoice.dueDate
+                      ? format(new Date(invoice.due_date || invoice.dueDate), 'MMM dd, yyyy')
+                      : 'N/A'}
                   </TableCell>
                   <TableCell className="font-medium text-foreground">
-                    ${invoice.total.toLocaleString()}
+                    ${((invoice.total_amount || invoice.total || 0)).toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    <SourceTypeBadge sourceType={invoice.sourceType} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-16 overflow-hidden rounded-full bg-secondary">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: `${invoice.confidence}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {invoice.confidence.toFixed(1)}%
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <InvoiceStatusBadge status={invoice.status} />
+                    <InvoiceStatusBadge status={invoice.status || 'pending'} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
@@ -208,7 +268,7 @@ export default function Invoices() {
         </p>
         <p>
           Total: $
-          {filteredInvoices.reduce((sum, inv) => sum + inv.total, 0).toLocaleString()}
+          {filteredInvoices.reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0).toLocaleString()}
         </p>
       </div>
     </DashboardLayout>

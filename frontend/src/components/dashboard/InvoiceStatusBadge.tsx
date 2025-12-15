@@ -14,9 +14,13 @@ const statusConfig = {
     label: 'Processing',
     className: 'bg-chart-2/10 text-chart-2 border-chart-2/20',
   },
+  processed: {
+    label: 'Processed',
+    className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+  },
   approved: {
     label: 'Approved',
-    className: 'bg-primary/10 text-primary border-primary/20',
+    className: 'bg-green-600/10 text-green-600 border-green-600/20',
   },
   paid: {
     label: 'Paid',
@@ -43,7 +47,8 @@ export function InvoiceStatusBadge({ status }: InvoiceStatusBadgeProps) {
           'mr-1.5 h-1.5 w-1.5 rounded-full',
           status === 'pending' && 'bg-warning',
           status === 'processing' && 'bg-chart-2 animate-pulse',
-          status === 'approved' && 'bg-primary',
+          status === 'processed' && 'bg-blue-600',
+          status === 'approved' && 'bg-green-600',
           status === 'paid' && 'bg-success',
           status === 'rejected' && 'bg-destructive'
         )}

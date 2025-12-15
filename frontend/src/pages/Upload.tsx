@@ -1,3 +1,4 @@
+//This is the Upload.tsx file for uploading and processing invoices with AI in a dashboard layout.'
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';

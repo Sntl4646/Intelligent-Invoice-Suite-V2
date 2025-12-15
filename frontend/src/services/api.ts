@@ -12,8 +12,9 @@ const handleResponse = async (res: Response) => {
 
 export const api = {
   // ----------------- INVOICES -----------------
+  // ✅ FIXED: Changed from /invoices to /invoices/list
   async getInvoices(): Promise<Invoice[]> {
-    const res = await fetch(`${API_BASE_URL}/invoices`);
+    const res = await fetch(`${API_BASE_URL}/invoices/list`);
     return handleResponse(res);
   },
 
@@ -21,6 +22,21 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/invoices/${id}`);
     return handleResponse(res);
   },
+
+  async updateInvoiceStatus(id: string, status: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/invoices/${id}/status?status=${status}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to update invoice status');
+  }
+  
+  return response.json();
+},
 
   async uploadInvoice(file: File): Promise<{ success: boolean; invoice?: Invoice; error?: string }> {
     try {
@@ -44,20 +60,12 @@ export const api = {
       console.error("Upload error:", err);
       return { success: false, error: err.message };
     }
-  }, // 👈 IMPORTANT COMMA FIXED HERE ✅
-
-  async updateInvoiceStatus(id: string, status: Invoice['status']): Promise<Invoice> {
-    const res = await fetch(`${API_BASE_URL}/invoices/${id}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    return handleResponse(res);
   },
 
   // ----------------- VENDORS -----------------
+  // ✅ FIXED: Changed from /vendors to /vendors/list
   async getVendors(): Promise<Vendor[]> {
-    const res = await fetch(`${API_BASE_URL}/vendors`);
+    const res = await fetch(`${API_BASE_URL}/vendors/list`);
     return handleResponse(res);
   },
 
@@ -72,8 +80,9 @@ export const api = {
   },
 
   // ----------------- DASHBOARD -----------------
+  // ✅ FIXED: Changed from /dashboard/metrics to /dashboard/summary
   async getDashboardMetrics(): Promise<DashboardMetrics> {
-    const res = await fetch(`${API_BASE_URL}/dashboard/metrics`);
+    const res = await fetch(`${API_BASE_URL}/dashboard/summary`);
     return handleResponse(res);
   },
 
@@ -115,6 +124,30 @@ export const api = {
       return { success: true, data };
     } catch (err: any) {
       console.error("AI API error:", err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  // ----------------- AI QUERY (NEW) -----------------
+  // ✅ NEW: Added AI SQL query endpoint
+  async queryWithAI(query: string, model_choice: string = 'gpt4'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, model_choice }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("AI Query failed:", errorText);
+        return { success: false, error: errorText || "AI Query failed" };
+      }
+
+      const data = await response.json();
+      return { success: true, data };
+    } catch (err: any) {
+      console.error("AI Query error:", err);
       return { success: false, error: err.message };
     }
   },

@@ -1,3 +1,4 @@
+//This is the NotFound.tsx file for displaying a custom 404 error page when a user navigates to a non-existent route.'
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 

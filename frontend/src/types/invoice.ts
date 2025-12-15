@@ -22,19 +22,42 @@ export interface Vendor {
 
 export interface Invoice {
   id: string;
+  
+  // ✅ Support both camelCase and snake_case from backend
   invoiceNumber: string;
+  invoice_number?: string;
+  
   vendorId: string;
+  vendor_id?: string;
+  
   vendorName: string;
+  vendor_name?: string;
+  
   invoiceDate: string;
+  issue_date?: string;
+  
   dueDate: string;
-  status: 'pending' | 'processing' | 'approved' | 'paid' | 'rejected';
+  due_date?: string;
+  
+  // ✅ Added 'processed' status
+  status: 'pending' | 'processing' | 'processed' | 'approved' | 'paid' | 'rejected';
+  
   subtotal: number;
+  
   taxAmount: number;
+  tax_amount?: number;
+  
   discount: number;
+  
   total: number;
+  total_amount?: number;
+  
   currency: string;
   lineItems: LineItem[];
+  
   paymentTerms: string;
+  payment_terms?: string;
+  
   paymentMethod: string;
   bankDetails?: string;
   notes?: string;
@@ -43,7 +66,9 @@ export interface Invoice {
   sourceType: 'pdf' | 'email' | 'image' | 'handwritten';
   confidence: number;
   processedAt: string;
+  
   createdAt: string;
+  created_at?: string;
 }
 
 export interface DashboardMetrics {
