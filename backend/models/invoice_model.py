@@ -1,3 +1,4 @@
+#This file defines the invoice_model.py for the invoicing system.
 from sqlalchemy import Column, String, Date, Float, ForeignKey, DateTime, JSON, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -20,7 +21,7 @@ class Invoice(Base):
     status = Column(String, default="pending")
     raw_text = Column(String)
     extracted_data = Column(JSON)
-    file_path = Column(String)
+    file_path = Column()
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     vendor = relationship("Vendor", backref="invoices")

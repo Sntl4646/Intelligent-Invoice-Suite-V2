@@ -8,7 +8,7 @@ from utils import logger
 
 router = APIRouter()
 
-@router.get("/summary")
+@router.get("${API_BASE_URL}/dashboard/summary")
 async def dashboard_summary(
     period: str = Query("month", regex="^(month|quarter|year)$"),
     db: AsyncSession = Depends(get_db),
@@ -31,7 +31,7 @@ async def dashboard_summary(
     ]
     return {"period": period, "data": data}
 
-@router.post("/ai/query")
+@router.post("${API_BASE_URL}/dashboard/ai/query")
 async def ai_sql_query(body: dict, user=Depends(get_current_user)):
     query = body.get("query", "")
     if not query:
