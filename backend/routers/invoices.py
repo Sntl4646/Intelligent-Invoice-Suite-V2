@@ -44,6 +44,68 @@ def summarize_invoice_data(extracted_data: dict):
         summary.append({"field": key, "value": str(value)})
     return summary
 
+def normalize_line_items(extracted_data: dict) -> list:
+    """
+    Normalizes line items from various formats into a consistent structure.
+    Handles missing quantity/unit price by calculating from total.
+    """
+    line_items = extracted_data.get("Line Items", [])
+    if not isinstance(line_items, list):
+        return []
+    
+    normalized = []
+    for idx, item in enumerate(line_items):
+        if not isinstance(item, dict):
+            continue
+        
+        # Extract fields with fallback names
+        description = (
+            item.get("Description") or 
+            item.get("Item") or 
+            item.get("Product") or 
+            item.get("Service") or 
+            ""
+        )
+        
+        quantity = safe_float(
+            item.get("Quantity") or 
+            item.get("Qty") or 
+            item.get("Units") or 
+            1.0  # Default to 1 if missing
+        )
+        
+        unit_price = safe_float(
+            item.get("Unit Price") or 
+            item.get("Rate") or 
+            item.get("Price") or 
+            item.get("UnitPrice") or 
+            0.0
+        )
+        
+        line_total = safe_float(
+            item.get("Amount") or 
+            item.get("Total") or 
+            item.get("Line Total") or 
+            0.0
+        )
+        
+        # Calculate missing values
+        if line_total > 0 and unit_price == 0 and quantity > 0:
+            unit_price = line_total / quantity
+        elif line_total == 0 and unit_price > 0 and quantity > 0:
+            line_total = unit_price * quantity
+        elif unit_price > 0 and quantity == 0 and line_total > 0:
+            quantity = line_total / unit_price
+        
+        normalized.append({
+            "id": str(idx),
+            "description": str(description).strip(),
+            "quantity": round(quantity, 2),
+            "unitPrice": round(unit_price, 2),
+            "total": round(line_total, 2),
+        })
+    
+    return normalized
 
 def get_openai_client():
     """Create OpenAI client with SSL verification disabled."""
@@ -315,7 +377,7 @@ async def list_invoices(db: AsyncSession = Depends(get_db)):
 # =========================
 @router.get("/{invoice_id}", response_model=dict)
 async def get_invoice(invoice_id: str, db: AsyncSession = Depends(get_db)):
-    """Get a single invoice by ID with details, summary, and AI insights."""
+    """Get a single invoice by ID with COMPLETE line items (qty, unit price, total)."""
     try:
         from sqlalchemy.orm import selectinload
         invoice_uuid = UUID(invoice_id)
@@ -332,29 +394,49 @@ async def get_invoice(invoice_id: str, db: AsyncSession = Depends(get_db)):
         # Call AI analysis with retry logic
         ai_analysis = analyze_invoice_text(invoice.raw_text or "")
 
-        # Build line items (if any)
-        line_items = []
-        if isinstance(extracted_data.get("Line Items"), list):
-            for idx, item in enumerate(extracted_data["Line Items"]):
-                line_items.append({
-                    "id": str(idx),
-                    "description": str(item.get("Description") or item.get("Item") or ""),
-                    "quantity": safe_float(item.get("Quantity")),
-                    "unitPrice": safe_float(item.get("Unit Price")),
-                    "total": safe_float(item.get("Amount")),
-                })
+        # 🔥 FIX: Use normalize_line_items instead of manual extraction
+        line_items = normalize_line_items(extracted_data)
+        
+        # 🔥 FIX: If no line items found but we have a total, create one
+        if not line_items and invoice.total_amount and invoice.total_amount > 0:
+            line_items = [{
+                "id": "0",
+                "description": extracted_data.get("Notes", "Invoice Total"),
+                "quantity": 1.0,
+                "unitPrice": safe_float(invoice.total_amount),
+                "total": safe_float(invoice.total_amount),
+            }]
 
         return {
             "id": str(invoice.id),
             "invoiceNumber": invoice.invoice_number,
+            "invoice_number": invoice.invoice_number,
             "vendorName": invoice.vendor.name if invoice.vendor else "Unknown",
+            "vendor_name": invoice.vendor.name if invoice.vendor else "Unknown",
+            "invoiceDate": invoice.issue_date.isoformat() if invoice.issue_date else None,
+            "issue_date": invoice.issue_date.isoformat() if invoice.issue_date else None,
+            "dueDate": invoice.due_date.isoformat() if invoice.due_date else None,
+            "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+            "subtotal": safe_float(invoice.subtotal),
+            "taxAmount": safe_float(invoice.tax_amount),
+            "tax_amount": safe_float(invoice.tax_amount),
             "total": safe_float(invoice.total_amount),
+            "total_amount": safe_float(invoice.total_amount),
+            "paymentTerms": invoice.payment_terms or "",
+            "payment_terms": invoice.payment_terms or "",
             "status": invoice.status,
+            "confidence": 95,
+            "sourceType": "pdf",
             "summaryTable": summary_table,
             "aiCategory": ai_analysis["category"],
             "aiInsights": ai_analysis["insights"],
-            "lineItems": line_items,
+            "lineItems": line_items,  # 🔥 Now uses normalized line items!
+            "notes": invoice.notes,
+            "createdAt": invoice.created_at.isoformat() if invoice.created_at else None,
+            "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
         }
     except Exception as e:
         logger.error(f"[Invoice Detail] Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

@@ -347,3 +347,171 @@ Mapping rules:
             "Line Items": [],
             "Additional Fields": {},
         }
+# services/invoice_extractor.py - IMPROVED EXTRACTION PROMPT
+# Add this improved prompt to your extract_invoice_data function
+
+IMPROVED_EXTRACTION_PROMPT = """
+You are an expert invoice data extraction specialist.
+
+CRITICAL: Extract ALL line items with COMPLETE information:
+- Description (what was purchased/service provided)
+- Quantity (number of items/hours) - REQUIRED
+- Unit Price (price per item) - REQUIRED  
+- Amount/Total (Quantity × Unit Price) - REQUIRED
+
+If Quantity is missing, assume 1.
+If Unit Price is missing but Amount is present, calculate: Unit Price = Amount / Quantity
+If Amount is missing, calculate: Amount = Quantity × Unit Price
+
+JSON schema (STRICT):
+{
+  "Vendor Name": "string",
+  "Vendor Address": "string",
+  "Vendor Phone": "string",
+  "Vendor Email": "string",
+  "Vendor Tax ID": "string",
+  "Invoice or Order Number": "string",
+  "Issue Date": "YYYY-MM-DD",
+  "Due Date": "YYYY-MM-DD",
+  "Currency": "USD",
+  "Subtotal": 0.00,
+  "Tax Amount": 0.00,
+  "Total Amount": 0.00,
+  "Payment Terms": "string",
+  "Notes": "string",
+  "Line Items": [
+    {
+      "Description": "Product/Service name",
+      "Quantity": 1.0,
+      "Unit Price": 100.00,
+      "Amount": 100.00
+    }
+  ]
+}
+
+VALIDATION RULES:
+1. EVERY line item MUST have Quantity, Unit Price, and Amount
+2. Amount should equal Quantity × Unit Price (within rounding)
+3. Sum of all Amounts should equal Subtotal
+4. Subtotal + Tax Amount should equal Total Amount
+5. Use 1.0 as default Quantity if not specified
+6. Extract numbers without currency symbols ($, €, etc.)
+7. Dates MUST be in YYYY-MM-DD format
+
+LINE ITEM PATTERNS TO RECOGNIZE:
+- Table format: | Description | Qty | Price | Total |
+- List format: "Item X - Qty: 5 @ $10.00 = $50.00"
+- Paragraph format: "5 units of Product A at $10 each ($50 total)"
+- Service format: "Consulting - 8 hours @ $150/hr = $1,200"
+
+COMMON FIELD NAMES (map these to schema):
+Quantity: Qty, Units, Count, Hours, Pieces, #
+Unit Price: Rate, Price, Unit Cost, Per Unit, Each
+Amount: Total, Line Total, Extended Price, Sum
+
+Return ONLY valid JSON. No explanations, no markdown.
+"""
+
+
+def extract_invoice_data_improved(file_path: str):
+    """
+    Enhanced extraction with better line item handling.
+    """
+    import os
+    import re
+    import json
+    import base64
+    import fitz
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import HumanMessage
+    from utils import logger
+    
+    logger.info(f"[Extractor] Processing: {file_path}")
+    
+    # Extract text
+    text = ""
+    try:
+        doc = fitz.open(file_path)
+        text = "\n".join(page.get_text("text") for page in doc)
+        doc.close()
+    except Exception as e:
+        logger.error(f"[Extractor] PDF text extraction failed: {e}")
+    
+    cleaned_text = text[:25000]  # Limit size
+    
+    try:
+        # Try Gemini first
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            temperature=0.1,
+            google_api_key=os.getenv("GOOGLE_API_KEY")
+        )
+        
+        if len(cleaned_text) > 500:
+            # Text-based extraction
+            full_prompt = IMPROVED_EXTRACTION_PROMPT + f"\n\nExtract from:\n{cleaned_text}"
+            response = llm.invoke(full_prompt)
+        else:
+            # Vision-based extraction
+            with open(file_path, "rb") as f:
+                pdf_bytes = f.read()
+            
+            message = HumanMessage(
+                content=[
+                    {"type": "text", "text": IMPROVED_EXTRACTION_PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": f"data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode()}"
+                    }
+                ]
+            )
+            response = llm.invoke([message])
+        
+        content = getattr(response, "content", str(response)).strip()
+        
+        # Clean markdown formatting
+        content = re.sub(r'^```json\s*', '', content)
+        content = re.sub(r'^```\s*', '', content)
+        content = re.sub(r'\s*```$', '', content)
+        content = content.strip()
+        
+        # Extract JSON
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if not match:
+            raise ValueError("No JSON found in response")
+        
+        data = json.loads(match.group(0))
+        
+        # 🔥 POST-PROCESSING: Ensure all line items have required fields
+        if "Line Items" in data and isinstance(data["Line Items"], list):
+            for item in data["Line Items"]:
+                # Ensure Quantity exists
+                if "Quantity" not in item or not item["Quantity"]:
+                    item["Quantity"] = 1.0
+                
+                # Ensure numeric types
+                item["Quantity"] = float(item.get("Quantity", 1.0))
+                item["Unit Price"] = float(item.get("Unit Price", 0.0))
+                item["Amount"] = float(item.get("Amount", 0.0))
+                
+                # Calculate missing Amount
+                if item["Amount"] == 0 and item["Unit Price"] > 0:
+                    item["Amount"] = item["Quantity"] * item["Unit Price"]
+                
+                # Calculate missing Unit Price
+                elif item["Unit Price"] == 0 and item["Amount"] > 0:
+                    item["Unit Price"] = item["Amount"] / item["Quantity"]
+        
+        logger.success("[Extractor] ✅ Extraction successful with complete line items")
+        return data
+        
+    except Exception as e:
+        logger.error(f"[Extractor] ❌ Extraction failed: {e}")
+        return {
+            "Vendor Name": "Unknown",
+            "Invoice or Order Number": "N/A",
+            "Total Amount": 0,
+            "Line Items": [],
+            "Notes": f"Extraction error: {str(e)}"
+        }
