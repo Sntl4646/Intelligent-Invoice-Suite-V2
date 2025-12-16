@@ -9,15 +9,15 @@ from models.vendor_model import Vendor
 from models.database import get_db
 from utils import logger
 from services.invoice_extractor import extract_invoice_data
-import openai
+from openai import OpenAI, APIConnectionError, RateLimitError, APIError
 from uuid import UUID
-import ssl
-import certifi
+import time
+import httpx
 import urllib3
 
 router = APIRouter()
 
-# Disable SSL warnings from urllib3
+# Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =========================
@@ -45,27 +45,44 @@ def summarize_invoice_data(extracted_data: dict):
     return summary
 
 
-def analyze_invoice_text(text: str):
-    """Use LLM to analyze invoice text and infer category + insights (with SSL verification disabled)."""
+def get_openai_client():
+    """Create OpenAI client with SSL verification disabled."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OpenAI API key not found in environment")
+    
+    # Create custom HTTP client with SSL verification disabled
+    http_client = httpx.Client(
+        verify=False,  # Disable SSL verification
+        timeout=120.0
+    )
+    
+    client = OpenAI(
+        api_key=api_key,
+        http_client=http_client,
+        max_retries=2
+    )
+    
+    return client
+
+
+def analyze_invoice_text(text: str, max_retries: int = 3):
+    """AI-driven invoice categorization + insight generation using OpenAI with retry logic."""
     if not text.strip():
         return {"category": "Unknown", "insights": "No text available for AI analysis."}
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return {"category": "General", "insights": "AI not configured, returning placeholder data."}
-
-    openai.api_key = api_key
-
-    # ⚠️ Disable SSL verification (for corporate proxy / self-signed certs)
-    openai.verify_ssl_certs = False
+        logger.warning("[AI Analysis] OpenAI API key not found in environment")
+        return {"category": "General", "insights": "OpenAI API key not found in environment."}
 
     prompt = f"""
-    You are an expert AI trained to understand business invoices.
-    Based on the following invoice text, identify:
-    1. The most likely category of expense (like 'Office Supplies', 'Consulting', 'Utilities', 'Software', etc.)
-    2. A short summary or insight about it.
+    You are an expert AI trained to interpret invoices.
+    Given this text, provide:
+    1️⃣ Category (e.g., Office Supplies, Consulting, Utilities, Software)
+    2️⃣ A concise natural-language summary.
 
-    Respond strictly in JSON:
+    Respond strictly in JSON format like:
     {{
         "category": "string",
         "insights": "string"
@@ -75,29 +92,79 @@ def analyze_invoice_text(text: str):
     {text[:2000]}
     """
 
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            max_tokens=250
-        )
-        content = response.choices[0].message["content"]
+    # Retry loop with exponential backoff
+    for attempt in range(max_retries):
         try:
-            data = json.loads(content)
-        except Exception:
-            data = {"category": "Uncategorized", "insights": content.strip()[:500]}
-        return data
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"category": "Uncategorized", "insights": f"AI analysis failed: {e}"}
+            logger.info(f"[AI Analysis] Attempting OpenAI call (attempt {attempt + 1}/{max_retries})")
+            
+            # Get client with SSL disabled
+            client = get_openai_client()
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=200,
+                timeout=60  # Per-request timeout
+            )
 
+            content = response.choices[0].message.content.strip()
+            logger.info("[AI Analysis] Successfully received OpenAI response")
 
+            try:
+                data = json.loads(content)
+                return data
+            except json.JSONDecodeError as je:
+                logger.warning(f"[AI Analysis] Failed to parse JSON response: {je}")
+                return {"category": "Uncategorized", "insights": content[:500]}
+
+        except APIConnectionError as e:
+            logger.error(f"[AI Analysis] Connection error (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                logger.info(f"[AI Analysis] Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error("[AI Analysis] Max retries reached for connection error")
+                return {
+                    "category": "Uncategorized",
+                    "insights": "AI analysis unavailable due to connection issues. Please check your internet connection."
+                }
+
+        except RateLimitError as e:
+            logger.error(f"[AI Analysis] Rate limit error: {e}")
+            return {
+                "category": "Uncategorized",
+                "insights": "AI analysis temporarily unavailable due to rate limits. Please try again later."
+            }
+
+        except APIError as e:
+            logger.error(f"[AI Analysis] OpenAI API error: {e}")
+            return {
+                "category": "Uncategorized",
+                "insights": f"AI analysis failed due to API error. Please contact support."
+            }
+
+        except Exception as e:
+            logger.error(f"[AI Analysis] Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "category": "Uncategorized",
+                "insights": f"AI analysis encountered an unexpected error."
+            }
+
+    # Fallback if all retries fail
+    return {
+        "category": "Uncategorized",
+        "insights": "AI analysis could not be completed after multiple attempts."
+    }
 
 
 UPLOAD_DIR = "uploaded_invoices"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
 # =========================
 # 🔹 Upload Invoice
 # =========================
@@ -261,6 +328,8 @@ async def get_invoice(invoice_id: str, db: AsyncSession = Depends(get_db)):
 
         extracted_data = invoice.extracted_data or {}
         summary_table = summarize_invoice_data(extracted_data)
+        
+        # Call AI analysis with retry logic
         ai_analysis = analyze_invoice_text(invoice.raw_text or "")
 
         # Build line items (if any)

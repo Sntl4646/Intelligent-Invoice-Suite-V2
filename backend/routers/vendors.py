@@ -3,21 +3,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models.vendor_model import Vendor
 from models.database import get_db
-from utils.auth_utils import get_current_user
 from utils import logger
 
 router = APIRouter()
 
 @router.get("/list", response_model=list)
 async def list_vendors(
-    db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
+    # ✅ Removed: user=Depends(get_current_user) - no auth required
 ):
     """
     Lists all vendors in the system.
     """
     try:
-        result = await db.execute(select(Vendor))
+        result = await db.execute(select(Vendor).order_by(Vendor.created_at.desc()))
         vendors = result.scalars().all()
 
         data = [
